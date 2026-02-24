@@ -250,6 +250,20 @@ class SamplingParams(
 
     skip_reading_prefix_cache: bool | None = None
 
+    # Fields for intermediate outputs
+    output_hidden_states: bool | str = False
+    """Controls whether to capture and return hidden states from the model.
+
+    - False: disabled (default)
+    - True or "final": return final layer hidden states only
+    - "all": return all layer hidden states (requires model support)
+    """
+    output_attention_weights: bool = False
+    """Whether to capture and return attention weights (requires model support).
+    Warning: Attention weights can be very large for long sequences."""
+    output_logits: bool = False
+    """Whether to capture and return pre-sampling logits."""
+
     @staticmethod
     def from_optional(
         n: int | None = 1,
@@ -280,6 +294,9 @@ class SamplingParams(
         allowed_token_ids: list[int] | None = None,
         extra_args: dict[str, Any] | None = None,
         skip_clone: bool = False,
+        output_hidden_states: bool | str = False,
+        output_attention_weights: bool = False,
+        output_logits: bool = False,
     ) -> "SamplingParams":
         if logit_bias is not None:
             # Convert token_id to integer
@@ -320,6 +337,9 @@ class SamplingParams(
             allowed_token_ids=allowed_token_ids,
             extra_args=extra_args,
             skip_clone=skip_clone,
+            output_hidden_states=output_hidden_states,
+            output_attention_weights=output_attention_weights,
+            output_logits=output_logits,
         )
 
     def __post_init__(self) -> None:
@@ -375,6 +395,8 @@ class SamplingParams(
             # the output of prompt logprobs may less than n_prompt_tokens,
             # we need to skip reading cache at this request.
             self.skip_reading_prefix_cache = self.prompt_logprobs is not None
+
+        self._verify_intermediate_outputs()
 
     def _verify_args(self) -> None:
         if not isinstance(self.n, int):
@@ -475,6 +497,26 @@ class SamplingParams(
     def _verify_greedy_sampling(self) -> None:
         if self.n > 1:
             raise ValueError(f"n must be 1 when using greedy sampling, got {self.n}.")
+
+    def _verify_intermediate_outputs(self) -> None:
+        """Validate intermediate output parameters."""
+        if self.output_hidden_states not in (False, True, "final", "all"):
+            raise ValueError(
+                f"output_hidden_states must be False, True, 'final', or 'all', "
+                f"got {self.output_hidden_states}."
+            )
+
+        if not isinstance(self.output_attention_weights, bool):
+            raise ValueError(
+                f"output_attention_weights must be a bool, "
+                f"got {type(self.output_attention_weights).__name__}."
+            )
+
+        if not isinstance(self.output_logits, bool):
+            raise ValueError(
+                f"output_logits must be a bool, "
+                f"got {type(self.output_logits).__name__}."
+            )
 
     def update_from_generation_config(
         self,
@@ -837,7 +879,10 @@ class SamplingParams(
             f"{self.spaces_between_special_tokens}, "
             f"truncate_prompt_tokens={self.truncate_prompt_tokens}, "
             f"structured_outputs={self.structured_outputs}, "
-            f"extra_args={self.extra_args})"
+            f"extra_args={self.extra_args}, "
+            f"output_hidden_states={self.output_hidden_states}, "
+            f"output_attention_weights={self.output_attention_weights}, "
+            f"output_logits={self.output_logits})"
         )
 
 

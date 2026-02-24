@@ -174,3 +174,75 @@ def test_seed(llm):
 
     assert out_1[0].outputs[0].text == out_2[0].outputs[0].text
     assert out_1[0].outputs[0].text != out_3[0].outputs[0].text
+
+
+def test_output_hidden_states(llm):
+    """Check that output_hidden_states returns hidden states."""
+
+    # Test with output_hidden_states=True (final layer)
+    params = SamplingParams(output_hidden_states=True, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+
+    assert len(output) == 1
+    assert len(output[0].outputs) == 1
+    completion = output[0].outputs[0]
+
+    # Check that hidden states are present
+    assert completion.hidden_states is not None
+    assert completion.hidden_states.shape[0] > 0  # Should have at least one token
+    assert completion.hidden_states.ndim == 2  # [num_tokens, hidden_size]
+
+    # Test with output_hidden_states="final" (should be same as True)
+    params = SamplingParams(output_hidden_states="final", max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    assert output[0].outputs[0].hidden_states is not None
+
+    # Test with output_hidden_states=False (default)
+    params = SamplingParams(output_hidden_states=False, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    assert output[0].outputs[0].hidden_states is None
+
+
+def test_output_logits(llm):
+    """Check that output_logits returns logits."""
+
+    # Test with output_logits=True
+    params = SamplingParams(output_logits=True, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+
+    assert len(output) == 1
+    assert len(output[0].outputs) == 1
+    completion = output[0].outputs[0]
+
+    # Check that logits are present
+    assert completion.logits is not None
+    assert completion.logits.shape[0] > 0  # Should have at least one token
+    assert completion.logits.ndim == 2  # [num_tokens, vocab_size]
+
+    # Test with output_logits=False (default)
+    params = SamplingParams(output_logits=False, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    assert output[0].outputs[0].logits is None
+
+
+def test_intermediate_outputs_validation():
+    """Check that intermediate output parameters are validated."""
+
+    # Valid values
+    _ = SamplingParams(output_hidden_states=False)
+    _ = SamplingParams(output_hidden_states=True)
+    _ = SamplingParams(output_hidden_states="final")
+    _ = SamplingParams(output_hidden_states="all")
+
+    # Invalid values should raise ValueError
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_hidden_states="invalid")
+
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_hidden_states=123)
+
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_attention_weights="not_bool")
+
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_logits="not_bool")

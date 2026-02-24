@@ -1268,6 +1268,7 @@ class Scheduler(SchedulerInterface):
         num_nans_in_logits = model_runner_output.num_nans_in_logits
         kv_connector_output = model_runner_output.kv_connector_output
         cudagraph_stats = model_runner_output.cudagraph_stats
+        intermediate_outputs_dict = model_runner_output.intermediate_outputs
 
         perf_stats: PerfStats | None = None
         if self.perf_metrics and self.perf_metrics.is_enabled():
@@ -1348,6 +1349,11 @@ class Scheduler(SchedulerInterface):
             new_logprobs = None
             new_token_ids = generated_token_ids
             pooler_output = pooler_outputs[req_index] if pooler_outputs else None
+            intermediate_outputs = (
+                intermediate_outputs_dict.get(req_id)
+                if intermediate_outputs_dict
+                else None
+            )
             kv_transfer_params = None
             status_before_stop = request.status
 
@@ -1426,6 +1432,7 @@ class Scheduler(SchedulerInterface):
                         num_external_computed_tokens=request.num_external_computed_tokens,
                         routed_experts=routed_experts,
                         num_nans_in_logits=request.num_nans_in_logits,
+                        intermediate_outputs=intermediate_outputs,
                     )
                 )
             else:
