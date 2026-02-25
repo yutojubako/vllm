@@ -2920,6 +2920,8 @@ class GPUModelRunner(
         req_id_to_index = {req_id: idx for idx, req_id in enumerate(req_ids)}
 
         # Calculate cumulative token indices
+        # NOTE: This assumes req_ids iteration order matches the token ordering
+        # in hidden_states and logits tensors (which is guaranteed by the scheduler)
         cumulative_tokens = 0
         for req_id in req_ids:
             req_state = self.requests.get(req_id)
@@ -2938,7 +2940,7 @@ class GPUModelRunner(
 
             req_outputs: dict[str, torch.Tensor] = {}
 
-            # Capture hidden states (final layer only for now)
+            # Capture hidden states (final layer only - "all" layers not yet implemented)
             if sp.output_hidden_states:
                 if hidden_states is not None:
                     # Extract hidden states for this request's tokens
@@ -2972,8 +2974,9 @@ class GPUModelRunner(
         # Synchronize device to ensure async copies are scheduled
         if intermediate_outputs_dict:
             self._sync_device()
+            return intermediate_outputs_dict
 
-        return intermediate_outputs_dict if intermediate_outputs_dict else None
+        return None
 
     def _bookkeeping_sync(
         self,

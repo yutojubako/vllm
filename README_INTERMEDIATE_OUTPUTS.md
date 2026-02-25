@@ -271,6 +271,22 @@ User accesses: outputs[0].outputs[0].hidden_states
 - ✅ **Async Transfer** - Non-blocking GPU→CPU
 - ✅ **Extensible** - Ready for future features
 
+### Backward Compatibility Notes
+
+**API Compatibility:**
+- All new parameters default to `False` (disabled)
+- Existing code without intermediate output params works unchanged
+- New fields in `CompletionOutput` are optional (`None` by default)
+
+**Serialization:**
+- If you serialize `CompletionOutput` objects (e.g., with `pickle`), note that the structure has new fields
+- Objects serialized with older vLLM versions can still be loaded (new fields default to `None`)
+- Objects serialized with this version may not load in older vLLM versions
+
+**Unimplemented Features:**
+- `output_hidden_states="all"` - Accepted but logs warning, returns final layer only
+- `output_attention_weights=True` - Raises `NotImplementedError`
+
 ## 📦 Modified Files
 
 **Core Implementation (7 files):**

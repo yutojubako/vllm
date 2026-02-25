@@ -185,7 +185,9 @@ class RequestState:
             deque() if stream_input else None
         )
 
-        # Intermediate outputs (hidden states, logits, etc.)
+        # Intermediate outputs captured during model execution
+        # Keys: "hidden_states", "logits" (future: "all_hidden_states", "attention_weights")
+        # Values: torch.Tensor on CPU (already transferred asynchronously)
         self.intermediate_outputs: dict[str, torch.Tensor] | None = None
 
     def apply_streaming_update(self, update: StreamingUpdate) -> None:

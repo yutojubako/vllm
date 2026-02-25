@@ -7,7 +7,7 @@ import json as json_mod
 from dataclasses import field
 from enum import Enum, IntEnum
 from functools import cached_property
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import msgspec
 from pydantic.dataclasses import dataclass
@@ -251,18 +251,23 @@ class SamplingParams(
     skip_reading_prefix_cache: bool | None = None
 
     # Fields for intermediate outputs
-    output_hidden_states: bool | str = False
+    output_hidden_states: bool | Literal["final", "all"] = False
     """Controls whether to capture and return hidden states from the model.
 
     - False: disabled (default)
     - True or "final": return final layer hidden states only
-    - "all": return all layer hidden states (requires model support)
+    - "all": return all layer hidden states (not yet implemented - will warn)
     """
     output_attention_weights: bool = False
-    """Whether to capture and return attention weights (requires model support).
-    Warning: Attention weights can be very large for long sequences."""
+    """Whether to capture and return attention weights.
+
+    Note: Not yet implemented. Setting this to True will raise a warning.
+    Attention weights can be very large for long sequences."""
     output_logits: bool = False
-    """Whether to capture and return pre-sampling logits."""
+    """Whether to capture and return pre-sampling logits.
+
+    Warning: Logits are large (vocab_size floats per token). For a 128K vocab
+    and 1000 tokens, this requires ~500MB per request on CPU."""
 
     @staticmethod
     def from_optional(
@@ -506,10 +511,25 @@ class SamplingParams(
                 f"got {self.output_hidden_states}."
             )
 
+        # Warn about unimplemented features
+        if self.output_hidden_states == "all":
+            logger.warning(
+                "output_hidden_states='all' is not yet implemented. "
+                "Only final layer hidden states will be returned. "
+                "This feature is planned for a future release."
+            )
+
         if not isinstance(self.output_attention_weights, bool):
             raise ValueError(
                 f"output_attention_weights must be a bool, "
                 f"got {type(self.output_attention_weights).__name__}."
+            )
+
+        if self.output_attention_weights:
+            raise NotImplementedError(
+                "output_attention_weights is not yet implemented. "
+                "This feature is planned for a future release. "
+                "Currently supported: output_hidden_states and output_logits."
             )
 
         if not isinstance(self.output_logits, bool):
