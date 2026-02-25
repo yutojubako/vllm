@@ -195,6 +195,12 @@ class ModelRunnerOutput:
     # information related to cudagraph execution
     cudagraph_stats: CUDAGraphStat | None = None
 
+    # Intermediate outputs
+    # req_id -> intermediate output dict
+    # Keys: "hidden_states", "all_hidden_states", "attention_weights", "logits"
+    # Values: torch.Tensor on CPU
+    intermediate_outputs: dict[str, dict[str, torch.Tensor]] | None = None
+
 
 # ModelRunnerOutput wrapper for async scheduling.
 class AsyncModelRunnerOutput(ABC):

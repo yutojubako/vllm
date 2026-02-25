@@ -35,6 +35,12 @@ class CompletionOutput:
             to stop, None if the completion finished for some other reason
             including encountering the EOS token.
         lora_request: The LoRA request that was used to generate the output.
+        hidden_states: The final layer hidden states if requested.
+        all_hidden_states: Dict mapping layer index to hidden states if all
+            layers were requested.
+        attention_weights: Dict mapping layer index to attention weights if
+            requested.
+        logits: The pre-sampling logits if requested.
     """
 
     index: int
@@ -46,6 +52,12 @@ class CompletionOutput:
     finish_reason: str | None = None
     stop_reason: int | str | None = None
     lora_request: LoRARequest | None = None
+
+    # Intermediate outputs
+    hidden_states: torch.Tensor | None = None
+    all_hidden_states: dict[int, torch.Tensor] | None = None
+    attention_weights: dict[int, torch.Tensor] | None = None
+    logits: torch.Tensor | None = None
 
     def finished(self) -> bool:
         return self.finish_reason is not None

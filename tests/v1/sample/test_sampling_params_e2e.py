@@ -174,3 +174,175 @@ def test_seed(llm):
 
     assert out_1[0].outputs[0].text == out_2[0].outputs[0].text
     assert out_1[0].outputs[0].text != out_3[0].outputs[0].text
+
+
+def test_output_hidden_states(llm):
+    """Check that output_hidden_states returns hidden states."""
+
+    # Test with output_hidden_states=True (final layer)
+    params = SamplingParams(output_hidden_states=True, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+
+    assert len(output) == 1
+    assert len(output[0].outputs) == 1
+    completion = output[0].outputs[0]
+
+    # Check that hidden states are present
+    assert completion.hidden_states is not None
+    assert completion.hidden_states.shape[0] > 0  # Should have at least one token
+    assert completion.hidden_states.ndim == 2  # [num_tokens, hidden_size]
+
+    # Test with output_hidden_states="final" (should be same as True)
+    params = SamplingParams(output_hidden_states="final", max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    assert output[0].outputs[0].hidden_states is not None
+
+    # Test with output_hidden_states=False (default)
+    params = SamplingParams(output_hidden_states=False, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    assert output[0].outputs[0].hidden_states is None
+
+
+def test_output_logits(llm):
+    """Check that output_logits returns logits."""
+
+    # Test with output_logits=True
+    params = SamplingParams(output_logits=True, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+
+    assert len(output) == 1
+    assert len(output[0].outputs) == 1
+    completion = output[0].outputs[0]
+
+    # Check that logits are present
+    assert completion.logits is not None
+    assert completion.logits.shape[0] > 0  # Should have at least one token
+    assert completion.logits.ndim == 2  # [num_tokens, vocab_size]
+
+    # Test with output_logits=False (default)
+    params = SamplingParams(output_logits=False, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    assert output[0].outputs[0].logits is None
+
+
+def test_intermediate_outputs_param_validation():
+    """Check that intermediate output parameters are validated."""
+
+    # Valid values
+    _ = SamplingParams(output_hidden_states=False)
+    _ = SamplingParams(output_hidden_states=True)
+    _ = SamplingParams(output_hidden_states="final")
+    # Note: "all" is valid but will generate a warning (not yet implemented)
+
+    # Invalid values should raise ValueError
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_hidden_states="invalid")
+
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_hidden_states=123)
+
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_attention_weights="not_bool")
+
+    with pytest.raises(ValueError):
+        _ = SamplingParams(output_logits="not_bool")
+
+    # output_attention_weights=True should raise NotImplementedError
+    with pytest.raises(NotImplementedError):
+        _ = SamplingParams(output_attention_weights=True)
+
+
+def test_intermediate_outputs_combined(llm):
+    """Test combining hidden states and logits output."""
+
+    params = SamplingParams(
+        output_hidden_states=True, output_logits=True, max_tokens=5
+    )
+    output = llm.generate(PROMPT, params)
+
+    assert len(output) == 1
+    completion = output[0].outputs[0]
+
+    # Both should be present
+    assert completion.hidden_states is not None
+    assert completion.logits is not None
+
+    # Check shapes
+    assert completion.hidden_states.ndim == 2
+    assert completion.logits.ndim == 2
+    # Same number of tokens
+    assert completion.hidden_states.shape[0] == completion.logits.shape[0]
+
+
+def test_intermediate_outputs_with_parallel_sampling(llm):
+    """Test intermediate outputs with n > 1 (parallel sampling)."""
+
+    params = SamplingParams(output_hidden_states=True, n=3, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+
+    assert len(output) == 1
+    assert len(output[0].outputs) == 3
+
+    # Each completion should have hidden states
+    for completion in output[0].outputs:
+        assert completion.hidden_states is not None
+        assert completion.hidden_states.ndim == 2
+        assert completion.hidden_states.shape[0] > 0
+
+
+def test_intermediate_outputs_batch(llm):
+    """Test intermediate outputs with batch processing."""
+
+    prompts = [PROMPT, "Another prompt", "Yet another"]
+    params = SamplingParams(output_hidden_states=True, output_logits=True, max_tokens=5)
+    outputs = llm.generate(prompts, params)
+
+    assert len(outputs) == 3
+
+    # Each request should have intermediate outputs
+    for output in outputs:
+        completion = output.outputs[0]
+        assert completion.hidden_states is not None
+        assert completion.logits is not None
+
+
+def test_intermediate_outputs_mixed_config_batch(llm):
+    """Test batch with different intermediate output configurations."""
+
+    prompts = ["Q1", "Q2", "Q3", "Q4"]
+    params_list = [
+        SamplingParams(max_tokens=5),  # No intermediate outputs
+        SamplingParams(max_tokens=5, output_hidden_states=True),
+        SamplingParams(max_tokens=5, output_logits=True),
+        SamplingParams(max_tokens=5, output_hidden_states=True, output_logits=True),
+    ]
+
+    outputs = llm.generate(prompts, sampling_params=params_list)
+
+    # Verify each has correct outputs
+    assert outputs[0].outputs[0].hidden_states is None
+    assert outputs[0].outputs[0].logits is None
+
+    assert outputs[1].outputs[0].hidden_states is not None
+    assert outputs[1].outputs[0].logits is None
+
+    assert outputs[2].outputs[0].hidden_states is None
+    assert outputs[2].outputs[0].logits is not None
+
+    assert outputs[3].outputs[0].hidden_states is not None
+    assert outputs[3].outputs[0].logits is not None
+
+
+def test_intermediate_outputs_backward_compatibility(llm):
+    """Test that default behavior is unchanged (backward compatibility)."""
+
+    # Old code without intermediate output params should still work
+    params = SamplingParams(temperature=0.0, max_tokens=5)
+    output = llm.generate(PROMPT, params)
+    completion = output[0].outputs[0]
+
+    # All intermediate outputs should be None by default
+    assert completion.hidden_states is None
+    assert completion.logits is None
+    assert completion.all_hidden_states is None
+    assert completion.attention_weights is None

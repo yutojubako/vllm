@@ -185,6 +185,11 @@ class RequestState:
             deque() if stream_input else None
         )
 
+        # Intermediate outputs captured during model execution
+        # Keys: "hidden_states", "logits" (future: "all_hidden_states", "attention_weights")
+        # Values: torch.Tensor on CPU (already transferred asynchronously)
+        self.intermediate_outputs: dict[str, torch.Tensor] | None = None
+
     def apply_streaming_update(self, update: StreamingUpdate) -> None:
         # Apply the update to the request state.
         self.streaming_input = not update.final
@@ -395,6 +400,17 @@ class RequestState:
         if delta and logprobs:
             logprobs = logprobs[-len(token_ids) :]
 
+        # Prepare intermediate outputs
+        hidden_states = None
+        all_hidden_states = None
+        attention_weights = None
+        logits = None
+        if self.intermediate_outputs:
+            hidden_states = self.intermediate_outputs.get("hidden_states")
+            all_hidden_states = self.intermediate_outputs.get("all_hidden_states")
+            attention_weights = self.intermediate_outputs.get("attention_weights")
+            logits = self.intermediate_outputs.get("logits")
+
         return CompletionOutput(
             index=self.request_index,
             text=text,
@@ -404,6 +420,10 @@ class RequestState:
             cumulative_logprob=self.logprobs_processor.cumulative_logprob,
             finish_reason=str(finish_reason) if finished else None,
             stop_reason=stop_reason if finished else None,
+            hidden_states=hidden_states,
+            all_hidden_states=all_hidden_states,
+            attention_weights=attention_weights,
+            logits=logits,
         )
 
     def _new_pooling_output(self, pooling_output: torch.Tensor) -> PoolingOutput:
@@ -630,6 +650,9 @@ class OutputProcessor:
             routed_experts = engine_core_output.routed_experts
             req_state.num_cached_tokens = engine_core_output.num_cached_tokens
             req_state.is_prefilling = False
+
+            # Store intermediate outputs in request state
+            req_state.intermediate_outputs = engine_core_output.intermediate_outputs
 
             if pooling_output is None:
                 assert req_state.detokenizer is not None

@@ -166,6 +166,8 @@ class EngineCoreOutput(
     # The number of NaNs in logits.
     # A value greater than 0 indicates that the output is corrupted.
     num_nans_in_logits: int = 0
+    # Intermediate outputs (hidden states, logits, etc.)
+    intermediate_outputs: dict[str, torch.Tensor] | None = None
 
     @property
     def finished(self) -> bool:

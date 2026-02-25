@@ -2882,6 +2882,102 @@ class GPUModelRunner(
         )
         return sampler_output
 
+    def _capture_intermediate_outputs(
+        self,
+        req_ids: list[str],
+        hidden_states: torch.Tensor | None,
+        logits: torch.Tensor | None,
+    ) -> dict[str, dict[str, torch.Tensor]] | None:
+        """Capture intermediate outputs (hidden states, logits) for requests
+        that have requested them via sampling params.
+
+        Args:
+            req_ids: List of request IDs
+            hidden_states: Final layer hidden states tensor [num_tokens, hidden_size]
+            logits: Logits tensor [num_tokens, vocab_size]
+
+        Returns:
+            Dictionary mapping req_id to dict of intermediate outputs, or None
+            if no requests need intermediate outputs.
+        """
+        # Check if any request needs intermediate outputs
+        needs_intermediate = False
+        for req_id in req_ids:
+            req_state = self.requests.get(req_id)
+            if req_state and req_state.sampling_params:
+                sp = req_state.sampling_params
+                if sp.output_hidden_states or sp.output_logits:
+                    needs_intermediate = True
+                    break
+
+        if not needs_intermediate:
+            return None
+
+        intermediate_outputs_dict: dict[str, dict[str, torch.Tensor]] = {}
+
+        # Get token indices for each request
+        num_scheduled_tokens = self.input_batch.num_scheduled_tokens_cpu
+        req_id_to_index = {req_id: idx for idx, req_id in enumerate(req_ids)}
+
+        # Calculate cumulative token indices
+        # NOTE: This assumes req_ids iteration order matches the token ordering
+        # in hidden_states and logits tensors (which is guaranteed by the scheduler)
+        cumulative_tokens = 0
+        for req_id in req_ids:
+            req_state = self.requests.get(req_id)
+            if not req_state or not req_state.sampling_params:
+                cumulative_tokens += num_scheduled_tokens[req_id_to_index[req_id]]
+                continue
+
+            sp = req_state.sampling_params
+            req_idx = req_id_to_index[req_id]
+            num_tokens = num_scheduled_tokens[req_idx]
+
+            # Skip if no intermediate outputs requested
+            if not sp.output_hidden_states and not sp.output_logits:
+                cumulative_tokens += num_tokens
+                continue
+
+            req_outputs: dict[str, torch.Tensor] = {}
+
+            # Capture hidden states (final layer only - "all" layers not yet implemented)
+            if sp.output_hidden_states:
+                if hidden_states is not None:
+                    # Extract hidden states for this request's tokens
+                    start_idx = cumulative_tokens
+                    end_idx = cumulative_tokens + num_tokens
+                    req_hidden_states = hidden_states[start_idx:end_idx]
+
+                    # Move to CPU asynchronously (following pooler_output pattern)
+                    req_hidden_states_cpu = req_hidden_states.to(
+                        "cpu", non_blocking=True
+                    )
+                    req_outputs["hidden_states"] = req_hidden_states_cpu
+
+            # Capture logits
+            if sp.output_logits:
+                if logits is not None:
+                    # Extract logits for this request's tokens
+                    start_idx = cumulative_tokens
+                    end_idx = cumulative_tokens + num_tokens
+                    req_logits = logits[start_idx:end_idx]
+
+                    # Move to CPU asynchronously
+                    req_logits_cpu = req_logits.to("cpu", non_blocking=True)
+                    req_outputs["logits"] = req_logits_cpu
+
+            if req_outputs:
+                intermediate_outputs_dict[req_id] = req_outputs
+
+            cumulative_tokens += num_tokens
+
+        # Synchronize device to ensure async copies are scheduled
+        if intermediate_outputs_dict:
+            self._sync_device()
+            return intermediate_outputs_dict
+
+        return None
+
     def _bookkeeping_sync(
         self,
         scheduler_output: "SchedulerOutput",
@@ -3787,6 +3883,13 @@ class GPUModelRunner(
                 else:
                     logger.error("RoutedExpertsCapturer not initialized.")
 
+            # Capture intermediate outputs if requested
+            intermediate_outputs_dict = self._capture_intermediate_outputs(
+                req_ids_output_copy,
+                hidden_states,
+                logits,
+            )
+
             output = ModelRunnerOutput(
                 req_ids=req_ids_output_copy,
                 req_id_to_index=req_id_to_index_output_copy,
@@ -3799,6 +3902,7 @@ class GPUModelRunner(
                 else None,
                 num_nans_in_logits=num_nans_in_logits,
                 cudagraph_stats=cudagraph_stats,
+                intermediate_outputs=intermediate_outputs_dict,
             )
 
         if not self.use_async_scheduling:
